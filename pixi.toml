@@ -6,6 +6,7 @@ platforms = ["osx-arm64"]
 version = "0.1.0"
 
 [tasks]
+convert-to-notebook = "bash -c 'for file in python_files/*.py; do jupytext --to notebook \"$file\" --output \"notebooks/$(basename \"$file\" .py).ipynb\"; done'"
 
 [dependencies]
 scikit-learn = ">=1.7.2,<2"
