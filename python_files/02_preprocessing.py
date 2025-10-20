@@ -52,9 +52,10 @@ df
 #
 # What an LLM would do to prepare such dataframe for machine learning?
 #
-# Prompt:
+# **🤖 Prompt:**
 #
-# Given the following dataframe, can you write some pandas code to clean the dataframe.
+# *Given the following dataframe, can you write some pandas code to clean the
+# dataframe.*
 
 # %%
 # Step 1: Remove columns with all missing values (NaN)
@@ -152,10 +153,10 @@ df
 #
 # What strategy an LLM would do to encode such date and time features?
 #
-# Prompt:
+# **🤖 Prompt:**
 #
-# I'm doing some machine learning using the following data containing date. Could you
-# make some processing such that I can use a linear model later.
+# *I'm doing some machine learning using the following data containing date. Could you
+# make some processing such that I can use a linear model later.*
 
 # %%
 # Convert date column to datetime format
@@ -261,10 +262,10 @@ skrub.TableReport(df)
 #
 # Let's ask an LLM to check what would make sense to encode categorical features.
 #
-# Prompt:
+# **🤖 Prompt:**
 #
-# Given such categories, what strategy would you use to encode low cardinality
-# feature such "gender" and high cardinality feature such as "division".
+# *Given such categories, what strategy would you use to encode low cardinality
+# feature such "gender" and high cardinality feature such as "division".*
 
 # %% [markdown]
 #

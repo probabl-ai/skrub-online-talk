@@ -14,12 +14,12 @@ dataset.employee_salaries.head()
 #
 # Let's ask Claude to explore this dataframe for us:
 #
-# Prompt:
+# **🤖 Prompt:**
 #
-# I would like to explore the `dataset.employee_salaries` dataframe to get some
-# insights about what data am I facing?
+# *I would like to explore the `dataset.employee_salaries` dataframe to get some
+# insights about what data am I facing?*
 #
-# Could you help me, please?
+# *Could you help me, please?*
 
 
 # %%
@@ -83,10 +83,10 @@ print(f"Rows with all NaN: {dataset.employee_salaries.isnull().all(axis=1).sum()
 #
 # Pretty verbose and not actual plots. Let's request some:
 #
-# Prompt:
+# **🤖 Prompt:**
 #
-# Please add also a couple of visual display to check the distribution of the
-# different type of data.
+# *Please add also a couple of visual display to check the distribution of the
+# different type of data.*
 
 # %%
 # Import visualization libraries
@@ -256,5 +256,3 @@ report
 
 # %%
 report.write_html("../output/report.html")
-
-# %%
