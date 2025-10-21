@@ -5,7 +5,7 @@
 # %%
 import skrub
 
-dataset = skrub.datasets.fetch_credit_fraud(split="test")
+dataset = skrub.datasets.fetch_credit_fraud(split="all")
 
 # %%
 skrub.TableReport(dataset.baskets)
@@ -101,17 +101,15 @@ df["price_consistency"] = 1 / (
 skrub.TableReport(df)
 
 # %%
-# Prepare features and target
-X = df.drop(["basket_ID", "ID", "fraud_flag"], axis=1)
-y = df["fraud_flag"]
+# Split the data to be aligned with the next example
+id_split = 76543  # noqa
+df_train = df.query("ID <= @id_split")
+df_test = df.query("ID > @id_split")
 
-# %%
-# Split the data
-from sklearn.model_selection import train_test_split
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
+X_train = df_train.drop(["basket_ID", "ID", "fraud_flag"], axis=1)
+y_train = df_train["fraud_flag"]
+X_test = df_test.drop(["basket_ID", "ID", "fraud_flag"], axis=1)
+y_test = df_test["fraud_flag"]
 
 # %%
 # Fill missing values
@@ -260,12 +258,10 @@ for i, v in enumerate(auc_scores):
 # ## The `skrub` Data Operations (DataOps)
 
 # %%
-baskets_experiments, baskets_production = train_test_split(
-    dataset.baskets,
-    test_size=0.2,
-    random_state=42,
-    stratify=dataset.baskets["fraud_flag"],
-)
+dataset = skrub.datasets.fetch_credit_fraud(split="train")
+baskets_experiment, products_experiment = dataset.baskets, dataset.products
+dataset = skrub.datasets.fetch_credit_fraud(split="test")
+baskets_production, products_production = dataset.baskets, dataset.products
 
 # %%
 products = skrub.var("products")
@@ -311,7 +307,7 @@ basket_features = aggregate_basket_features(products)
 basket_features
 
 # %%
-products = skrub.var("products", dataset.products)
+products = skrub.var("products", products_experiment)
 products
 
 # %%
@@ -319,12 +315,12 @@ basket_features = aggregate_basket_features(products)
 basket_features
 
 # %%
-baskets = skrub.var("baskets", baskets_experiments)
+baskets = skrub.var("baskets", baskets_experiment)
 baskets
 
-# # %%
-# baskets = baskets.skb.subsample(n=5_000)
-# baskets
+# %%
+baskets = baskets.skb.subsample(n=5_000)
+baskets
 
 # %%
 features = baskets[["ID"]].skb.mark_as_X()
@@ -393,25 +389,32 @@ predictions = engineered_features.skb.apply(predictive_model, y=target)
 predictions
 
 # %%
-predictions.skb.cross_validate(scoring="roc_auc")
+from sklearn.model_selection import StratifiedKFold
+
+cv = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
+predictions.skb.cross_validate(scoring="roc_auc", cv=cv)
 
 # %%
 predictions.skb.full_report()
 
 # %%
-learner = predictions.skb.make_learner(fitted=True, keep_subsampling=False)
+learner = predictions.skb.make_learner(fitted=True)
 learner
 
 # %%
-y_pred = learner.predict({"baskets": baskets_experiments, "products": dataset.products})
+y_proba = learner.predict_proba(
+    {"baskets": baskets_experiment, "products": products_experiment}
+)
 
 # %%
-roc_auc_score(baskets_experiments["fraud_flag"], y_pred)
+roc_auc_score(baskets_experiment["fraud_flag"], y_proba[:, 1])
 
 # %%
-y_pred = learner.predict({"baskets": baskets_production, "products": dataset.products})
+y_proba = learner.predict_proba(
+    {"baskets": baskets_production, "products": products_production}
+)
 
 # %%
-roc_auc_score(baskets_production["fraud_flag"], y_pred)
+roc_auc_score(baskets_production["fraud_flag"], y_proba[:, 1])
 
 # %%
