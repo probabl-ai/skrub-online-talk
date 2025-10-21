@@ -5,7 +5,7 @@
 # %%
 import skrub
 
-dataset = skrub.datasets.fetch_credit_fraud()
+dataset = skrub.datasets.fetch_credit_fraud(split="test")
 
 # %%
 skrub.TableReport(dataset.baskets)
@@ -66,8 +66,8 @@ skrub.TableReport(basket_features)
 
 # %%
 # Merge with fraud labels
-df = basket_features.merge(
-    dataset.baskets, left_on="basket_ID", right_on="ID", how="inner"
+df = dataset.baskets.merge(
+    basket_features, right_on="basket_ID", left_on="ID", how="left"
 )
 skrub.TableReport(df)
 
@@ -261,7 +261,10 @@ for i, v in enumerate(auc_scores):
 
 # %%
 baskets_experiments, baskets_production = train_test_split(
-    dataset.baskets, test_size=0.2, random_state=42
+    dataset.baskets,
+    test_size=0.2,
+    random_state=42,
+    stratify=dataset.baskets["fraud_flag"],
 )
 
 # %%
@@ -308,7 +311,7 @@ basket_features = aggregate_basket_features(products)
 basket_features
 
 # %%
-products = skrub.var("products", dataset.products).skb.subsample(n=10_000)
+products = skrub.var("products", dataset.products)
 products
 
 # %%
@@ -317,6 +320,13 @@ basket_features
 
 # %%
 baskets = skrub.var("baskets", baskets_experiments)
+baskets
+
+# # %%
+# baskets = baskets.skb.subsample(n=5_000)
+# baskets
+
+# %%
 features = baskets[["ID"]].skb.mark_as_X()
 target = baskets["fraud_flag"].skb.mark_as_y()
 
@@ -330,11 +340,9 @@ target
 # %%
 @skrub.deferred
 def join_basket_aggregated_products(baskets, basket_features):
-    df = basket_features.merge(
-        baskets, left_on="basket_ID", right_on="ID", how="inner"
+    return baskets.merge(
+        basket_features, right_on="basket_ID", left_on="ID", how="left"
     ).drop(columns=["basket_ID", "ID"])
-
-    return df
 
 
 # %%
@@ -375,10 +383,35 @@ engineered_features = add_domain_specific_features(aggregated_features)
 engineered_features
 
 # %%
-predictive_model = skrub.tabular_pipeline(
-    HistGradientBoostingClassifier(random_state=42, max_iter=100)
+predictive_model = Pipeline(
+    [
+        ("preprocessor", preprocessor),
+        ("classifier", HistGradientBoostingClassifier(random_state=42, max_iter=100)),
+    ]
 )
 predictions = engineered_features.skb.apply(predictive_model, y=target)
 predictions
+
+# %%
+predictions.skb.cross_validate(scoring="roc_auc")
+
+# %%
+predictions.skb.full_report()
+
+# %%
+learner = predictions.skb.make_learner(fitted=True, keep_subsampling=False)
+learner
+
+# %%
+y_pred = learner.predict({"baskets": baskets_experiments, "products": dataset.products})
+
+# %%
+roc_auc_score(baskets_experiments["fraud_flag"], y_pred)
+
+# %%
+y_pred = learner.predict({"baskets": baskets_production, "products": dataset.products})
+
+# %%
+roc_auc_score(baskets_production["fraud_flag"], y_pred)
 
 # %%
