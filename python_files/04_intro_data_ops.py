@@ -256,6 +256,9 @@ for i, v in enumerate(auc_scores):
 # %% [markdown]
 #
 # ## The `skrub` Data Operations (DataOps)
+#
+# DataOps extend the scikit-learn machinery to allow more complex data operations but
+# taking care about machine learning states (i.e. fit / predict).
 
 # %%
 dataset = skrub.datasets.fetch_credit_fraud(split="train")
@@ -263,9 +266,31 @@ baskets_experiment, products_experiment = dataset.baskets, dataset.products
 dataset = skrub.datasets.fetch_credit_fraud(split="test")
 baskets_production, products_production = dataset.baskets, dataset.products
 
+# %% [markdown]
+#
+# To achieve the traceability of the data operations, `skrub` records them. We call
+# this a DataOps plan and it is a graph of the data operations. We can record several
+# type of operations:
+#
+# - any dataframe operation (e.g. merge, group by, aggregate, etc.)
+# - scikit-learn estimators (e.g. `StandardScaler`, `LogisticRegression`, etc.)
+# - any custom user code (e.g. load data from path, any data transformation, etc.)
+#
+# Everything starts from a `skrub` variable that is a symbolic representation of the
+# data.
+
 # %%
 products = skrub.var("products")
 products
+
+# %% [markdown]
+#
+# There is not much for the moment. But what if we would like to apply a transformation.
+# We can take the previous transform that the LLM created to aggregate statistics for
+# a given basket.
+#
+# The trick here is that we don't want to evaluate the function directly but record
+# that we should apply it. Therefore, we use the `@skrub.deferred` decorator.
 
 
 # %%
@@ -306,6 +331,15 @@ def aggregate_basket_features(products):
 basket_features = aggregate_basket_features(products)
 basket_features
 
+# %% [markdown]
+#
+# Applying the function do not execute anything but is adding a new node in the DataOps
+# plan. However, you can imagine that building a complex DataOps plan without having
+# eager feedback would not be practical.
+#
+# It is one reason, that you can attach some data to the `skrub` variable to compute
+# a preview on this data.
+
 # %%
 products = skrub.var("products", products_experiment)
 products
@@ -314,13 +348,38 @@ products
 basket_features = aggregate_basket_features(products)
 basket_features
 
+# %% [markdown]
+#
+# Now, you have both the graph and the preview of the transformation on your data.
+#
+# We can do the same on the baskets table.
+
 # %%
 baskets = skrub.var("baskets", baskets_experiment)
 baskets
 
+# %% [markdown]
+#
+# However, here we see that the preview is done on the full training set. We might be
+# interested in just having the preview on a subsample of the data at least for the
+# debugging phase when building our DataOps plan. It is the job of the `skb.subsample`
+# method to do this.
+
 # %%
 baskets = baskets.skb.subsample(n=5_000)
 baskets
+
+# %% [markdown]
+#
+# When we previously discussed pitfalls of the LLM generated code, we mentioned issue
+# related to data leakage. Usually, this problem boils down to not compute statistics
+# on the training set and apply them on the test set and instead use the full dataset.
+#
+# Therefore, we introduce the `skb.mark_as_X` and `skb.mark_as_y` methods to mark nodes
+# in the DataOps plan as the features and target variables. It informs that any
+# subsequent machine learning operations relying on training / testing sets should
+# start from the marked nodes. In short, if a split should happen, it should be done
+# at the marked nodes.
 
 # %%
 features = baskets[["ID"]].skb.mark_as_X()
@@ -331,6 +390,11 @@ features
 
 # %%
 target
+
+# %% [markdown]
+#
+# Now, we are going to apply the different operations that the LLM came with. First, we
+# need to join the baskets and the aggregated products features.
 
 
 # %%
@@ -345,38 +409,87 @@ def join_basket_aggregated_products(baskets, basket_features):
 aggregated_features = join_basket_aggregated_products(features, basket_features)
 aggregated_features
 
+# %% [markdown]
+#
+# Then, some domain-specific features have been derived from the aggregated features.
+# The original code was the following:
+#
+# ```python
+# # 1. Price anomaly features
+# df["price_anomaly"] = (
+#     df["cash_price_sum"] > df["cash_price_sum"].quantile(0.95)
+# ).astype(int)
+# df["low_price_anomaly"] = (
+#     df["cash_price_sum"] < df["cash_price_sum"].quantile(0.05)
+# ).astype(int)
+# # 2. Quantity anomaly features
+# df["quantity_anomaly"] = (
+#     df["Nbr_of_prod_purchas_sum"] > df["Nbr_of_prod_purchas_sum"].quantile(0.95)
+# ).astype(int)
+# ```
+#
+# This code relies on the computation of quantiles. The way it was programmed presented
+# a data leakage issue because the quantiles were computed on the full dataset.
+#
+# So here, we would not to create a scikit-learn transformer to compute the quantiles
+# on the training set and apply the transformation in a specific `transform` method to
+# be able to apply the transformation on the test set.
+#
+# Hopefully, the `KBinsDiscretizer` from scikit-learn would provide a very similar
+# transformation and we only need to select the columns and apply this transformer.
+
+# %%
+import warnings
+from sklearn.preprocessing import KBinsDiscretizer
+
+warnings.filterwarnings(
+    "ignore", message="Bins whose width are too small", category=UserWarning
+)
+
+cols_derived_anomaly = ["cash_price_sum", "Nbr_of_prod_purchas_sum"]
+discretizer = KBinsDiscretizer(
+    n_bins=10,
+    encode="onehot-dense",
+    strategy="quantile",
+    quantile_method="averaged_inverted_cdf",
+).set_output(transform="pandas")
+
+aggregated_features_with_anomaly = aggregated_features.skb.apply(skrub.ApplyToCols(
+        discretizer, cols=cols_derived_anomaly, keep_original=True
+    )
+)
+aggregated_features_with_anomaly
+
+# %% [markdown]
+#
+# Then, we can apply the stateless operations as a normal user custom function.
+
 
 # %%
 @skrub.deferred
 def add_domain_specific_features(df):
-    # 1. Price anomaly features
-    df["price_anomaly"] = (
-        df["cash_price_sum"] > df["cash_price_sum"].quantile(0.95)
-    ).astype(int)
-    df["low_price_anomaly"] = (
-        df["cash_price_sum"] < df["cash_price_sum"].quantile(0.05)
-    ).astype(int)
-
-    # 2. Quantity anomaly features
-    df["quantity_anomaly"] = (
-        df["Nbr_of_prod_purchas_sum"] > df["Nbr_of_prod_purchas_sum"].quantile(0.95)
-    ).astype(int)
-
     # 3. Diversity features
     df["item_diversity"] = df["item_nunique"] / (df["Nbr_of_prod_purchas_sum"] + 1e-8)
     df["make_diversity"] = df["make_nunique"] / (df["Nbr_of_prod_purchas_sum"] + 1e-8)
 
     # 4. Price consistency features
-    df["price_consistency"] = 1 / (
-        df["cash_price_std"] + 1e-8
-    )  # Higher values = more consistent prices
+    df["price_consistency"] = 1 / (df["cash_price_std"] + 1e-8)
 
     return df
 
 
+# %% [markdown]
+#
+# And we need to concatenate the two tables to have the final features.
+
 # %%
-engineered_features = add_domain_specific_features(aggregated_features)
+engineered_features = add_domain_specific_features(aggregated_features_with_anomaly)
 engineered_features
+
+# %% [markdown]
+#
+# Then, we can apply the predictive model to the final features and we will observe a
+# preview of a fit/predict on the subsample of the data.
 
 # %%
 predictive_model = Pipeline(
@@ -389,28 +502,53 @@ predictions = engineered_features.skb.apply(predictive_model, y=target)
 predictions
 
 # %%
-from sklearn.model_selection import StratifiedKFold
-
-cv = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
-predictions.skb.cross_validate(scoring="roc_auc", cv=cv)
-
-# %%
 predictions.skb.full_report()
+
+# %% [markdown]
+#
+# Now the question is how can I extract the DataOps plan and potentially reuse it later.
+#
+# It is where we introduced the concept of learner which is the resulting predictive
+# pipeline which will expose the usual `fit` / `predict` scikit-learn API with a twist.
+# To get a fitted learner, one needs to call the `skb.make_learner` method.
 
 # %%
 learner = predictions.skb.make_learner(fitted=True)
 learner
 
+# %% [markdown]
+#
+# This learner can be serialized and deserialized.
+
 # %%
-y_proba = learner.predict_proba(
+import joblib
+
+joblib.dump(learner, "../output/learner.joblib")
+
+# %%
+deserialized_learner = joblib.load("../output/learner.joblib")
+deserialized_learner
+
+# %% [markdown]
+#
+# Since `skrub` uses symbolic variables, the `fit` and `predict` methods are extended
+# to accept a dictionary of dataframes or series. Let's compute the score on the
+# training set
+
+# %%
+y_proba = deserialized_learner.predict_proba(
     {"baskets": baskets_experiment, "products": products_experiment}
 )
 
 # %%
 roc_auc_score(baskets_experiment["fraud_flag"], y_proba[:, 1])
 
+# %% [markdown]
+#
+# And on the production set.
+
 # %%
-y_proba = learner.predict_proba(
+y_proba = deserialized_learner.predict_proba(
     {"baskets": baskets_production, "products": products_production}
 )
 
