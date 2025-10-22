@@ -454,9 +454,8 @@ discretizer = KBinsDiscretizer(
     quantile_method="averaged_inverted_cdf",
 ).set_output(transform="pandas")
 
-aggregated_features_with_anomaly = aggregated_features.skb.apply(skrub.ApplyToCols(
-        discretizer, cols=cols_derived_anomaly, keep_original=True
-    )
+aggregated_features_with_anomaly = aggregated_features.skb.apply(
+    skrub.ApplyToCols(discretizer, cols=cols_derived_anomaly, keep_original=True)
 )
 aggregated_features_with_anomaly
 
@@ -554,5 +553,80 @@ y_proba = deserialized_learner.predict_proba(
 
 # %%
 roc_auc_score(baskets_production["fraud_flag"], y_proba[:, 1])
+
+# %% [markdown]
+#
+# ## Advanced usages of the DataOps
+#
+# Two usages that we did not present here yet are:
+#
+# - how to cross-validate a DataOps plan
+# - how to tune hyperparameters of the DataOps plan
+#
+# The former is quite straightforward as a DataOps expose a `.skb.cross_validate`
+# method. Restarting from the `predictions` variable, we can cross-validate the
+# DataOps plan.
+
+# %%
+predictions
+
+# %%
+predictions.skb.cross_validate(scoring="roc_auc", cv=5, n_jobs=-1)
+
+# %% [markdown]
+#
+# When it comes hyperparameters tuning, `skrub` introduces some functions that can be
+# used where you want to tweak the hyperparameters. Those functions are:
+#
+# - `choose_from`: select from the given list of options
+# - `choose_int`: select an integer within a range
+# - `choose_float`: select a float within a range
+# - `choose_bool`: select a bool
+# - `optional`: chooses whether to execute the given operation
+#
+# Let's give an example where we will tune the estimators as the LLM suggested.
+
+# %%
+models
+
+# %%
+models = {name: skrub.tabular_pipeline(model) for name, model in models.items()}
+
+# %%
+predictions = engineered_features.skb.apply(
+    skrub.choose_from(models, name="predictor"), y=target
+)
+predictions
+
+# %%
+search = predictions.skb.make_grid_search(
+    fitted=True, scoring="roc_auc", cv=2, n_jobs=-1
+)
+search.results_
+
+# %%
+search.plot_results()
+
+# %% [markdown]
+#
+# And what if we would like to perform a nested cross-validation?
+
+# %%
+nested_search = skrub.cross_validate(
+    predictions.skb.make_grid_search(scoring="roc_auc", cv=2),
+    environment={"baskets": baskets_experiment, "products": products_experiment},
+    scoring="roc_auc",
+    cv=2,
+    n_jobs=-1,
+    return_learner=True,
+)
+
+# %%
+nested_search
+
+# %%
+for learner in nested_search["learner"]:
+    print(learner.results_)
+    print()
 
 # %%
