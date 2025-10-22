@@ -18,8 +18,9 @@ report
 #
 # *Given the type of data in the `dataset.X` dataframe, can you build a
 # preprocessing pipeline that I can then used with scikit-learn pipeline and
-# specifically plugging a linear model like the `Ridge` as a predictor.
-# However, you don't need to create the full machine learning pipeline. Only
+# specifically plugging a linear model like the `Ridge` as a predictor.*
+#
+# *However, you don't need to create the full machine learning pipeline. Only
 # the preprocessing stage.*
 
 # %%

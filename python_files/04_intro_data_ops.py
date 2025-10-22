@@ -22,12 +22,12 @@ skrub.TableReport(dataset.products)
 #
 # **🤖 Prompt:**
 #
-# *I would like you to write a machine learning pipeline.
+# *I would like you to write a machine learning pipeline.*
 #
-# The dataset is composed of two tables: `dataset.baskets` and `data.product`. The
-# variable to predict is the column "fraud_flag" from the `data.baskets` table.
+# *The dataset is composed of two tables: `dataset.baskets` and `data.product`. The
+# variable to predict is the column "fraud_flag" from the `data.baskets` table.*
 #
-# So to create the a machine learning pipeline, you will need to kind of join the
+# *So to create the a machine learning pipeline, you will need to kind of join the
 # information between the two table and train and test a machine learning model for it.*
 
 # %%
@@ -628,5 +628,3 @@ nested_search
 for learner in nested_search["learner"]:
     print(learner.results_)
     print()
-
-# %%
